@@ -166,4 +166,3 @@ Transaction and Script objects can be created easily with a client:
 
 Rather than throwing an error, the client will always panic when it discovers
 missing configuration such as transactions, scripts, contracts, flow.json, accounts, etc...
-# glow
