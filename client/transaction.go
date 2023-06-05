@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/onflow/cadence"
+	"github.com/onflow/flow-cli/pkg/flowkit"
+	"github.com/onflow/flow-cli/pkg/flowkit/services"
 	"github.com/onflow/flow-go-sdk"
 	"github.com/onflow/flow-go-sdk/crypto"
 
@@ -11,8 +13,7 @@ import (
 )
 
 type Tx struct {
-	cdc         []byte
-	args        []cadence.Value
+	script      flowkit.Script // TODO: flowkit's "script" type can be quite confusing since "script" is typically used to refer to reads from the chain
 	payer       Account
 	proposer    Account
 	authorizers []Account
@@ -28,8 +29,7 @@ func (c *GlowClient) NewTx(
 ) *Tx {
 	b := []byte(c.replaceImportAddresses(string(cdc)))
 	return &Tx{
-		cdc:      b,
-		args:     args,
+		script:   *flowkit.NewScript(b, args, ""),
 		proposer: proposer,
 		payer:    proposer,
 		authorizers: []Account{
@@ -48,8 +48,7 @@ func (c *GlowClient) NewTxFromString(
 ) *Tx {
 	b := []byte(c.replaceImportAddresses(cdc))
 	return &Tx{
-		cdc:      b,
-		args:     args,
+		script:   *flowkit.NewScript(b, args, ""),
 		proposer: proposer,
 		payer:    proposer,
 		authorizers: []Account{
@@ -72,8 +71,7 @@ func (c *GlowClient) NewTxFromFile(
 	}
 
 	return &Tx{
-		cdc:      []byte(cdc),
-		args:     args,
+		script:   *flowkit.NewScript([]byte(cdc), args, ""),
 		proposer: proposer,
 		payer:    proposer,
 		authorizers: []Account{
@@ -85,13 +83,13 @@ func (c *GlowClient) NewTxFromFile(
 
 // Specify args
 func (t *Tx) Args(args ...cadence.Value) *Tx {
-	t.args = args
+	t.script.Args = args
 	return t
 }
 
 // Add arg to args
 func (t *Tx) AddArg(arg cadence.Value) *Tx {
-	t.args = append(t.args, arg)
+	t.script.Args = append(t.script.Args, arg)
 	return t
 }
 
@@ -122,7 +120,7 @@ func (t *Tx) AddAuthorizer(a Account) *Tx {
 }
 
 type SignedTx struct {
-	flowTx flow.Transaction
+	flowTx *flowkit.Transaction
 	client *GlowClient
 }
 
@@ -133,7 +131,12 @@ func (c *GlowClient) newInMemorySigner(privKey string) (crypto.Signer, error) {
 		return nil, err
 	}
 
-	return crypto.NewInMemorySigner(pk, c.HashAlgo), nil
+	signer, err := crypto.NewInMemorySigner(pk, c.HashAlgo)
+	if err != nil {
+		return nil, err
+	}
+
+	return signer, nil
 }
 
 // Sign tx
@@ -154,18 +157,19 @@ func (t *Tx) Sign() (*SignedTx, error) {
 		addresses = append(addresses, a.FlowAddress())
 	}
 
+	var txAddresses = services.NewTransactionAddresses(
+		t.proposer.FlowAddress(),
+		t.payer.FlowAddress(),
+		FlowAddressesFromAccounts(t.authorizers),
+	)
+
 	// build flow tx
 	flowTx, err := t.client.Services.Transactions.Build(
-		t.proposer.FlowAddress(),
-		FlowAddressesFromAccounts(t.authorizers),
-		t.proposer.FlowAddress(),
+		txAddresses,
 		0, // todo: which key?
-		t.cdc,
-		"", // we don't need to pass the file name as we have a different strategy to replace imports
+		&t.script,
 		t.client.gasLimit,
-		t.args,
 		t.client.network,
-		true,
 	)
 	if err != nil {
 		return nil, err
@@ -190,15 +194,14 @@ func (t *Tx) Sign() (*SignedTx, error) {
 	}
 
 	return &SignedTx{
-		flowTx: *flowTx.FlowTransaction(),
+		flowTx: flowTx,
 		client: t.client,
 	}, err
 }
 
 // Send a signed Transaction
 func (signedTx *SignedTx) Send() (*flow.TransactionResult, error) {
-	txBytes := []byte(fmt.Sprintf("%x", signedTx.flowTx.Encode()))
-	_, res, err := signedTx.client.Services.Transactions.SendSigned(txBytes, true)
+	_, res, err := signedTx.client.Services.Transactions.SendSigned(signedTx.flowTx)
 	if err != nil {
 		return nil, err
 	}

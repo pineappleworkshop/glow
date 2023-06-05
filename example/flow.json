@@ -40,6 +40,12 @@
         "emulator": "0xf8d6e0586b0a20c7"
       }
     },
+    "ViewResolver": {
+      "source": "./contract/ViewResolver.cdc",
+      "aliases": {
+        "emulator": "0xf8d6e0586b0a20c7"
+      }
+    },
     "ExampleNFT": {
       "source": "./contract/ExampleNFT.cdc",
       "aliases": {
@@ -68,6 +74,7 @@
         "NonFungibleToken",
         "NFTStorefront",
         "MetadataViews",
+        "ViewResolver",
         "ExampleNFT"
       ]
     }
